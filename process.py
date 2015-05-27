@@ -5,6 +5,7 @@ import glob
 import parser
 import logging
 import datetime
+import argparse
 from pymongo import MongoClient
 from ConfigParser import ConfigParser
 
@@ -44,7 +45,7 @@ def make_conn(db_auth, db_user, db_pass, db_host=None):
     return collection
 
 
-def query_today(collection, date):
+def query_date(collection, date):
     """
     Function to query the MongoDB instance and obtain results for the desired
     date range. Pulls stories that aren't Stanford parsed yet
@@ -112,7 +113,7 @@ def parse_config():
     return _parse_config(cparser)
 
 
-def run():
+def run(run_date):
     stanford_dir, log_dir, db_auth, db_user, db_pass, db_host = parse_config()
     # Setup the logging
     logger = logging.getLogger('stanford')
@@ -128,11 +129,22 @@ def run():
     logger.addHandler(fh)
     logger.info('Running.')
 
-    now = datetime.datetime.utcnow()
+    if not run_date:
+      run_date = datetime.datetime.utcnow()
+    else:
+      run_date = datetime.datetime.strptime(run_date,'%Y%m%d')
+
     coll = make_conn(db_auth, db_user, db_pass, db_host)
-    stories = query_today(coll, now)
+    stories = query_date(coll, run_date)
     parser.stanford_parse(coll, stories, stanford_dir)
 
 
 if __name__ == '__main__':
-    run()
+    # Grab command line options.
+    argumentParser = argparse.ArgumentParser(description='Grab run_date.')
+    argumentParser.add_argument('--run_date', type=str, default='',
+                        help='enter date in YYYYMMDD format')
+    args = argumentParser.parse_args()
+
+    main(args.run_date)
+
