@@ -1,6 +1,7 @@
 # -*- encoding=utf-8 -*-
 
 import os
+import sys
 import glob
 import parser
 import logging
@@ -8,9 +9,10 @@ import datetime
 import argparse
 from pymongo import MongoClient
 from ConfigParser import ConfigParser
+from elasticsearch import Elasticsearch
+from elasticsearch_dsl import Search, Q
 
-
-def make_conn(db_auth, db_user, db_pass, db_host=None):
+def make_conn(db_auth, db_user, db_pass, db_host=None, elasticsearch=False):
     """
     Function to establish a connection to a local MonoDB instance.
 
@@ -34,18 +36,22 @@ def make_conn(db_auth, db_user, db_pass, db_host=None):
                 Collection within MongoDB that holds the scraped news stories.
 
     """
-    if db_host:
-        client = MongoClient(db_host)
+    if not elasticsearch:
+        if db_host:
+            client = MongoClient(db_host)
+        else:
+            client = MongoClient()
+        if db_auth:
+            client[db_auth].authenticate(db_user, db_pass)
+        database = client.event_scrape
+        collection = database['stories']
     else:
-        client = MongoClient()
-    if db_auth:
-        client[db_auth].authenticate(db_user, db_pass)
-    database = client.event_scrape
-    collection = database['stories']
+        collection=Elasticsearch()
+
     return collection
 
 
-def query_date(collection, date):
+def query_date(collection, date, num_days=1, elasticsearch=False):
     """
     Function to query the MongoDB instance and obtain results for the desired
     date range. Pulls stories that aren't Stanford parsed yet
@@ -69,11 +75,21 @@ def query_date(collection, date):
     """
 
     logger = logging.getLogger('stanford')
-    gt_date = date - datetime.timedelta(days=1)
-    posts = collection.find({"$and": [{"date_added": {"$lte": date}},
-                                      {"date_added": {"$gt": gt_date}},
-                                      {"stanford": 0}]})
-    logger.info('Returning {} total stories.'.format(posts.count()))
+    gt_date = date - datetime.timedelta(days=num_days)
+    if not elasticsearch:
+        posts = collection.find({"$and": [{"date_added": {"$lte": date}},
+                                          {"date_added": {"$gt": gt_date}},
+                                          {"stanford": 0}]})
+        logger.info('Returning {} total stories.'.format(posts.count()))
+    else:
+        #Do a date range query and filter out the documents where stanford != 0.
+        lte_time = date.strftime('%Y-%m-%dT%X.%f%z')
+        gt_time = gt_date.strftime('%Y-%m-%dT%X.%f%z')
+        s = Search(using=collection,index="stories-test",doc_type="news")\
+            .filter("range",published_date={"lte": lte_time, "gt": gt_time})\
+            .filter("term", stanford=0);
+        posts = s.execute()
+
     return posts
 
 
@@ -113,7 +129,7 @@ def parse_config():
     return _parse_config(cparser)
 
 
-def run(run_date):
+def run(run_date,num_days,elasticsearch):
     stanford_dir, log_dir, db_auth, db_user, db_pass, db_host = parse_config()
     # Setup the logging
     logger = logging.getLogger('stanford')
@@ -132,11 +148,15 @@ def run(run_date):
     if not run_date:
       run_date = datetime.datetime.utcnow()
     else:
-      run_date = datetime.datetime.strptime(run_date,'%Y%m%d')
+        try:
+            run_date = datetime.datetime.strptime(run_date,'%Y%m%d')
+        except ValueError:
+            print('Bad run date')
+            raise SystemExit
 
-    coll = make_conn(db_auth, db_user, db_pass, db_host)
-    stories = query_date(coll, run_date)
-    parser.stanford_parse(coll, stories, stanford_dir)
+    coll = make_conn(db_auth, db_user, db_pass, db_host, elasticsearch)
+    stories = query_date(coll, run_date,num_days,elasticsearch)
+    parser.stanford_parse(coll, stories, stanford_dir,elasticsearch)
 
 
 if __name__ == '__main__':
@@ -144,7 +164,12 @@ if __name__ == '__main__':
     argumentParser = argparse.ArgumentParser(description='Grab run_date.')
     argumentParser.add_argument('--run_date', type=str, default='',
                         help='enter date in YYYYMMDD format')
+    argumentParser.add_argument('--num_days', type=int, default=1,
+                                help='number of days before run_date to query')
+    argumentParser.add_argument('--es', dest='elasticsearch', action='store_true',
+                                help='Use Elasticsearch on localhost')
+    argumentParser.set_defaults(elasticsearch=False)
     args = argumentParser.parse_args()
 
-    main(args.run_date)
+    run(args.run_date,args.num_days,args.elasticsearch)
 

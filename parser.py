@@ -4,9 +4,11 @@ import re
 import logging
 import datetime
 from stanford_corenlp_pywrapper import sockwrap
+from choose_content import choose_content
+import json
 
 
-def stanford_parse(coll, stories, stanford):
+def stanford_parse(coll, stories, stanford, elasticsearch=False):
     """
     Runs stories pulled from the MongoDB instance through CoreNLP. Updates
     the database entry with the parsed sentences. Currently set to run the
@@ -32,21 +34,23 @@ def stanford_parse(coll, stories, stanford):
                                         configfile='stanford_config.ini',
                                         corenlp_libdir=stanford)
 
-    total = stories.count()
+    total = stories.hits.total if elasticsearch else stories.count()
     print "Stanford setup complete. Starting parse of {} stories...".format(total)
     logger.info('Finished CoreNLP setup.')
 
-    for story in stories:
-        print 'Processing story {}. {}'.format(story['_id'],
-                                               datetime.datetime.now())
-        logger.info('\tProcessing story {}'.format(story['_id']))
+    if elasticsearch:
+        for hit in stories.hits:
+            print 'Processing story {}. {}'.format(hit.meta.id,
+                                                   datetime.datetime.now())
+        logger.info('\tProcessing story {}'.format(hit.meta.id))
 
-        if story['stanford'] == 1:
-            print '\tStory {} already parsed.'.format(story['_id'])
-            logger.info('\tStory {} already parsed.'.format(story['_id']))
+        if hit['stanford'] == 1:
+            print '\tStory {} already parsed.'.format(hit.meta.id)
+            logger.info('\tStory {} already parsed.'.format(hit.meta.id))
             pass
         else:
-            content = _sentence_segmenter(story['content'])[:7]
+            content_type = choose_content(hit,'content_boilerpipe','content_goose')
+            content = _sentence_segmenter(hit[content_type])[:7]
 
             parsed = []
             for sent in content:
@@ -55,13 +59,43 @@ def stanford_parse(coll, stories, stanford):
                     parsed.append(stanford_result['sentences'][0]['parse'])
 
                 except Exception as e:
-                    print 'Error on story {}. ¯\_(ツ)_/¯. {}'.format(story['_id'],
-                                                                        e)
-                    logger.warning('\tError on story {}. {}'.format(story['_id'],
+                    print 'Error on story {}. ¯\_(ツ)_/¯. {}'.format(hit.meta.id,
+                                                                    e)
+                    logger.warning('\tError on story {}. {}'.format(hit.meta.id,
                                                                     e))
 
-            coll.update({"_id": story['_id']}, {"$set": {'parsed_sents': parsed,
-                                                         'stanford': 1}})
+            update_doc = {"stanford": 1, "parsed_sents": parsed }
+            update_doc_str = json.dumps(update_doc)
+            coll.update(index='stories-test',doc_type='news',id=hit.meta.id,
+                    body={"doc":{"stanford": 1, "parsed_sents": parsed }})
+
+    else:
+        for story in stories:
+            print 'Processing story {}. {}'.format(story['_id'],
+                                                   datetime.datetime.now())
+            logger.info('\tProcessing story {}'.format(story['_id']))
+
+            if story['stanford'] == 1:
+                print '\tStory {} already parsed.'.format(story['_id'])
+                logger.info('\tStory {} already parsed.'.format(story['_id']))
+                pass
+            else:
+                content = _sentence_segmenter(story['content'])[:7]
+
+                parsed = []
+                for sent in content:
+                    try:
+                        stanford_result = stanford_parser.parse_doc(sent)
+                        parsed.append(stanford_result['sentences'][0]['parse'])
+
+                    except Exception as e:
+                        print 'Error on story {}. ¯\_(ツ)_/¯. {}'.format(story['_id'],
+                                                                            e)
+                        logger.warning('\tError on story {}. {}'.format(story['_id'],
+                                                                        e))
+
+                coll.update({"_id": story['_id']}, {"$set": {'parsed_sents': parsed,
+                                                             'stanford': 1}})
 
     print 'Done with StanfordNLP parse...\n\n'
     logger.info('Done with CoreNLP parse.')
