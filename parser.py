@@ -42,32 +42,32 @@ def stanford_parse(coll, stories, stanford, elasticsearch=False):
         for hit in stories.hits:
             print 'Processing story {}. {}'.format(hit.meta.id,
                                                    datetime.datetime.now())
-        logger.info('\tProcessing story {}'.format(hit.meta.id))
+            logger.info('\tProcessing story {}'.format(hit.meta.id))
 
-        if hit['stanford'] == 1:
-            print '\tStory {} already parsed.'.format(hit.meta.id)
-            logger.info('\tStory {} already parsed.'.format(hit.meta.id))
-            pass
-        else:
-            content_type = choose_content(hit,'content_boilerpipe','content_goose')
-            content = _sentence_segmenter(hit[content_type])[:7]
+            if hit['stanford'] == 1:
+                print '\tStory {} already parsed.'.format(hit.meta.id)
+                logger.info('\tStory {} already parsed.'.format(hit.meta.id))
+                pass
+            else:
+                content_type = choose_content(hit, 'content_boilerpipe', 'content_goose')
+                content = _sentence_segmenter(hit[content_type])[:7]
 
-            parsed = []
-            for sent in content:
-                try:
-                    stanford_result = stanford_parser.parse_doc(sent)
-                    parsed.append(stanford_result['sentences'][0]['parse'])
+                parsed = []
+                for sent in content:
+                    try:
+                        stanford_result = stanford_parser.parse_doc(sent)
+                        parsed.append(stanford_result['sentences'][0]['parse'])
 
-                except Exception as e:
-                    print 'Error on story {}. ¯\_(ツ)_/¯. {}'.format(hit.meta.id,
-                                                                    e)
-                    logger.warning('\tError on story {}. {}'.format(hit.meta.id,
-                                                                    e))
+                    except Exception as e:
+                        print 'Error on story {}. ¯\_(ツ)_/¯. {}'.format(hit.meta.id,
+                                                                        e)
+                        logger.warning('\tError on story {}. {}'.format(hit.meta.id,
+                                                                        e))
 
-            update_doc = {"stanford": 1, "parsed_sents": parsed }
-            update_doc_str = json.dumps(update_doc)
-            coll.update(index='stories-test',doc_type='news',id=hit.meta.id,
-                    body={"doc":{"stanford": 1, "parsed_sents": parsed }})
+                update_doc = {"stanford": 1, "parsed_sents": parsed}
+                update_doc_str = json.dumps(update_doc)
+                coll.update(index='stories-test', doc_type='news', id=hit.meta.id,
+                            body={"doc": {"stanford": 1, "parsed_sents": parsed}})
 
     else:
         for story in stories:
@@ -90,7 +90,7 @@ def stanford_parse(coll, stories, stanford, elasticsearch=False):
 
                     except Exception as e:
                         print 'Error on story {}. ¯\_(ツ)_/¯. {}'.format(story['_id'],
-                                                                            e)
+                                                                        e)
                         logger.warning('\tError on story {}. {}'.format(story['_id'],
                                                                         e))
 
@@ -143,16 +143,16 @@ def _sentence_segmenter(paragr):
                    'pres.', 'treas.', 'sect.', 'maj.', 'ph.d.', 'ed. psy.',
                    'proc.', 'fr.', 'asst.', 'p.f.c.', 'prof.', 'admr.',
                    'engr.', 'mgr.', 'supt.', 'admin.', 'assoc.', 'voc.',
-                   'hon.', 'm.d.', 'dpty.',  'sec.', 'capt.', 'c.e.o.',
+                   'hon.', 'm.d.', 'dpty.', 'sec.', 'capt.', 'c.e.o.',
                    'c.f.o.', 'c.i.o.', 'c.o.o.', 'c.p.a.', 'c.n.a.', 'acct.',
                    'llc.', 'inc.', 'dir.', 'esq.', 'lt.', 'd.d.', 'ed.',
-                   'revd.', 'psy.d.', 'v.p.',  'senr.', 'gen.', 'prov.',
+                   'revd.', 'psy.d.', 'v.p.', 'senr.', 'gen.', 'prov.',
                    'cmdr.', 'sgt.', 'sen.', 'col.', 'lieut.', 'cpl.', 'pfc.',
                    'k.p.h.', 'cent.', 'deg.', 'doz.', 'Fahr.', 'Cel.', 'F.',
-                   'C.', 'K.', 'ft.', 'fur.',  'gal.', 'gr.', 'in.', 'kg.',
+                   'C.', 'K.', 'ft.', 'fur.', 'gal.', 'gr.', 'in.', 'kg.',
                    'km.', 'kw.', 'l.', 'lat.', 'lb.', 'lb per sq in.', 'long.',
                    'mg.', 'mm.,, m.p.g.', 'm.p.h.', 'cc.', 'qr.', 'qt.', 'sq.',
-                   't.', 'vol.',  'w.', 'wt.']
+                   't.', 'vol.', 'w.', 'wt.']
 
     sentlist = []
     # controls skipping over non-terminal conditions
@@ -162,8 +162,8 @@ def _sentence_segmenter(paragr):
         isok = True
         if paragr[terloc.start()] == '.':
             if (paragr[terloc.start() - 1].isupper() and
-                    paragr[terloc.start() - 2] == ' '):
-                        isok = False      # single initials
+                        paragr[terloc.start() - 2] == ' '):
+                isok = False  # single initials
             else:
                 # check abbreviations
                 loc = paragr.rfind(' ', 0, terloc.start() - 1)
@@ -175,8 +175,7 @@ def _sentence_segmenter(paragr):
         if paragr[:terloc.start()].count('"') % 2 != 0:
             isok = False
         if isok:
-            if (len(paragr[:terloc.start()]) > MIN_SENTLENGTH and
-                    len(paragr[:terloc.start()]) < MAX_SENTLENGTH):
+            if (MIN_SENTLENGTH < len(paragr[:terloc.start()]) < MAX_SENTLENGTH):
                 sentlist.append(paragr[:terloc.start() + 2])
             paragr = paragr[terloc.end() - 1:]
             searchstart = 0
@@ -186,7 +185,7 @@ def _sentence_segmenter(paragr):
         terloc = terpat.search(paragr, searchstart)
 
     # add final sentence
-    if (len(paragr) > MIN_SENTLENGTH and len(paragr) < MAX_SENTLENGTH):
+    if (MIN_SENTLENGTH < len(paragr) < MAX_SENTLENGTH):
         sentlist.append(paragr)
 
     return sentlist
