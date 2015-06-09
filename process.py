@@ -10,7 +10,7 @@ import argparse
 from pymongo import MongoClient
 from ConfigParser import ConfigParser
 from elasticsearch import Elasticsearch
-from elasticsearch_dsl import Search, Q
+from elasticsearch_dsl import Search, F
 
 def make_conn(db_auth, db_user, db_pass, db_host=None, elasticsearch=False):
     """
@@ -51,7 +51,7 @@ def make_conn(db_auth, db_user, db_pass, db_host=None, elasticsearch=False):
     return collection
 
 
-def query_date(collection, date, num_days=1, elasticsearch=False):
+def query_date(collection, date, num_days, elasticsearch, index):
     """
     Function to query the MongoDB instance and obtain results for the desired
     date range. Pulls stories that aren't Stanford parsed yet
@@ -85,10 +85,19 @@ def query_date(collection, date, num_days=1, elasticsearch=False):
         #Do a date range query and filter out the documents where stanford != 0.
         lte_time = date.strftime('%Y-%m-%dT%X.%f%z')
         gt_time = gt_date.strftime('%Y-%m-%dT%X.%f%z')
-        s = Search(using=collection,index="stories-test",doc_type="news")\
+        s = Search(using=collection,index=index,doc_type="news")\
             .filter("range",published_date={"lte": lte_time, "gt": gt_time})\
-            .filter("term", stanford=0);
-        posts = s.execute()
+            .filter("or", [F("term", stanford=0), F("missing", field="stanford")])
+
+        page = s[0:100].execute()
+        total = page.hits.total
+        current_count = 100
+        posts=page.hits
+        while current_count < total:
+            page = s[current_count+1:current_count+101].execute()
+
+            posts.append(page.hits)
+            current_count += 100
 
     return posts
 
@@ -129,7 +138,7 @@ def parse_config():
     return _parse_config(cparser)
 
 
-def run(run_date,num_days,elasticsearch):
+def run(run_date,num_days,elasticsearch,index):
     stanford_dir, log_dir, db_auth, db_user, db_pass, db_host = parse_config()
     # Setup the logging
     logger = logging.getLogger('stanford')
@@ -155,8 +164,8 @@ def run(run_date,num_days,elasticsearch):
             raise SystemExit
 
     coll = make_conn(db_auth, db_user, db_pass, db_host, elasticsearch)
-    stories = query_date(coll, run_date,num_days,elasticsearch)
-    parser.stanford_parse(coll, stories, stanford_dir,elasticsearch)
+    stories = query_date(coll, run_date,num_days,elasticsearch,index)
+    parser.stanford_parse(coll, stories, stanford_dir,elasticsearch,index)
 
 
 if __name__ == '__main__':
@@ -169,7 +178,9 @@ if __name__ == '__main__':
     argumentParser.add_argument('--es', dest='elasticsearch', action='store_true',
                                 help='Use Elasticsearch on localhost')
     argumentParser.set_defaults(elasticsearch=False)
+    argumentParser.add_argument('--index', type=str, default='stories-index',
+                                help='the elasticsearch index containing the stories')
     args = argumentParser.parse_args()
 
-    run(args.run_date,args.num_days,args.elasticsearch)
+    run(args.run_date,args.num_days,args.elasticsearch,args.index)
 

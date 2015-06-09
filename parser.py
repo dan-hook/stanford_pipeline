@@ -8,7 +8,7 @@ from choose_content import choose_content
 import json
 
 
-def stanford_parse(coll, stories, stanford, elasticsearch=False):
+def stanford_parse(coll, stories, stanford, elasticsearch, index):
     """
     Runs stories pulled from the MongoDB instance through CoreNLP. Updates
     the database entry with the parsed sentences. Currently set to run the
@@ -34,17 +34,17 @@ def stanford_parse(coll, stories, stanford, elasticsearch=False):
                                         configfile='stanford_config.ini',
                                         corenlp_libdir=stanford)
 
-    total = stories.hits.total if elasticsearch else stories.count()
+    total = stories.total if elasticsearch else stories.count()
     print "Stanford setup complete. Starting parse of {} stories...".format(total)
     logger.info('Finished CoreNLP setup.')
 
     if elasticsearch:
-        for hit in stories.hits:
+        for hit in stories:
             print 'Processing story {}. {}'.format(hit.meta.id,
                                                    datetime.datetime.now())
             logger.info('\tProcessing story {}'.format(hit.meta.id))
 
-            if hit['stanford'] == 1:
+            if 'stanford' in hit and hit['stanford'] == 1:
                 print '\tStory {} already parsed.'.format(hit.meta.id)
                 logger.info('\tStory {} already parsed.'.format(hit.meta.id))
                 pass
@@ -64,9 +64,7 @@ def stanford_parse(coll, stories, stanford, elasticsearch=False):
                         logger.warning('\tError on story {}. {}'.format(hit.meta.id,
                                                                         e))
 
-                update_doc = {"stanford": 1, "parsed_sents": parsed}
-                update_doc_str = json.dumps(update_doc)
-                coll.update(index='stories-test', doc_type='news', id=hit.meta.id,
+                coll.update(index=index, doc_type='news', id=hit.meta.id,
                             body={"doc": {"stanford": 1, "parsed_sents": parsed}})
 
     else:
