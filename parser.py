@@ -6,6 +6,7 @@ import datetime
 from stanford_corenlp_pywrapper import sockwrap
 from choose_content import choose_content
 import json
+from elasticsearch_dsl import result
 
 
 def stanford_parse(coll, stories, stanford, elasticsearch, index):
@@ -40,6 +41,9 @@ def stanford_parse(coll, stories, stanford, elasticsearch, index):
 
     if elasticsearch:
         for hit in stories:
+            #There was a bug that these lines tried to work around.  The underlying bug should be fixed.
+            #if type(hit) is not result.Result:
+            #    continue
             print 'Processing story {}. {}'.format(hit.meta.id,
                                                    datetime.datetime.now())
             logger.info('\tProcessing story {}'.format(hit.meta.id))

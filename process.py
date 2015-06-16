@@ -96,7 +96,7 @@ def query_date(collection, date, num_days, elasticsearch, index):
         while current_count < total:
             page = s[current_count+1:current_count+101].execute()
 
-            posts.append(page.hits)
+            posts.extend(page.hits)
             current_count += 100
 
     return posts
